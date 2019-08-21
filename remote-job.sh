@@ -83,7 +83,6 @@ logger -s "[INFO] $(date) JOB_URL: $JOB_URL"
 # Job is running
 IS_BUILDING="true"
 COUNTER=0
-OUTPUT_LINE_CURSOR=0
 
 # Use until IS_BUILDING = false (instead of while IS_BUILDING = true)
 # to avoid false positives if curl command (IS_BUILDING) fails
@@ -97,15 +96,6 @@ until [ "$IS_BUILDING" = "false" ]; do
     break  # Skip entire rest of loop.
   fi
   IS_BUILDING=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.building'`
-  # Grab total lines in console output
-  NEW_LINE_CURSOR=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/consoleText | wc -l`
-  # subtract line count from cursor
-  LINE_COUNT=`expr $NEW_LINE_CURSOR - $OUTPUT_LINE_CURSOR`
-  if [ "$LINE_COUNT" -gt 0 ];
-  then
-    curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $JOB_URL/consoleText | tail -$LINE_COUNT
-  fi
-  OUTPUT_LINE_CURSOR=$NEW_LINE_CURSOR
 done
 
 RESULT=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.result'`
