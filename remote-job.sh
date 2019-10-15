@@ -55,7 +55,7 @@ logger -s "[INFO] $(date) PARAMS: $PARAMS"
 REMOTE_JOB_URL="$JENKINS_URL/job/$JOB_NAME/buildWithParameters?$PARAMS"
 logger -s "[INFO] $(date) Calling REMOTE_JOB_URL: $REMOTE_JOB_URL"
 
-QUEUED_URL=$(curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS -D - "$REMOTE_JOB_URL" | grep Location | awk {'print $2'})
+QUEUED_URL=$(curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS -D - "$REMOTE_JOB_URL" | grep -i Location | awk {'print $2'})
 #perl -n -e '/^Location: (.*)$/ && print "$1\n"')
 [ -z "$QUEUED_URL" ] && { logger -s "[ERROR] $(date) No QUEUED_URL was found.  Did you remember to set a token (-t)?"; exit 1; }
 
