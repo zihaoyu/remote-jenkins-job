@@ -18,7 +18,7 @@ set -e
 [ -z "$BUILD_TIMEOUT_SECONDS" ] && BUILD_TIMEOUT_SECONDS=3600
 # Number of seconds between polling attempts
 [ -z "$POLL_INTERVAL" ] && POLL_INTERVAL=10
-while getopts j:p:t:u:s:r:i opt; do
+while getopts j:p:t:u:s:r:i:w opt; do
   case $opt in
     p) parameters+=("$OPTARG");;
     t) parameters+=("token=$OPTARG");;
@@ -26,7 +26,8 @@ while getopts j:p:t:u:s:r:i opt; do
     u) JENKINS_URL=$OPTARG;;
     s) JENKINS_USER=$OPTARG;;
     r) API_TOKEN=$OPTARG;;
-    i) CURL_OPTS="-k" # tell curl to ignore cert validation
+    i) CURL_OPTS="-k";; # tell curl to ignore cert validation
+    w) WAIT="true"      # wait for remote build to finish
     #...
   esac
 done
@@ -78,16 +79,16 @@ while [ -z "$JOB_URL" ]; do
   JOB_URL=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $QUEUED_URL | jq -r '.executable.url'`
   [ "$JOB_URL" = "null" ] && unset JOB_URL
 done
-logger -s "[INFO] $(date) JOB_URL: $JOB_URL"
+logger -s "[INFO] $(date) REMOTE_BUILD_URL: $JOB_URL"
 
 # Job is running
-IS_BUILDING="true"
+IS_BUILDING="false"
 COUNTER=0
 
 # Use until IS_BUILDING = false (instead of while IS_BUILDING = true)
 # to avoid false positives if curl command (IS_BUILDING) fails
 # while polling for status
-until [ "$IS_BUILDING" = "false" ]; do
+until [ "$IS_BUILDING" = "true" ]; do
   let COUNTER=COUNTER+$POLL_INTERVAL
   sleep $POLL_INTERVAL
   if [ "$COUNTER" -gt $BUILD_TIMEOUT_SECONDS ];
@@ -98,12 +99,15 @@ until [ "$IS_BUILDING" = "false" ]; do
   IS_BUILDING=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.building'`
 done
 
-RESULT=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.result'`
-if [ "$RESULT" = 'SUCCESS' ]
-then
-  logger -s "[INFO] $(date) BUILD RESULT: $RESULT"
-  exit 0
-else
-  logger -s "[ERROR] $(date) BUILD RESULT: $RESULT - Build is unsuccessful, timed out, or status could not be obtained."
-  exit 1
+# Wait for remote build to finish if requested
+if [ "$WAIT" = "true" ]; then
+  RESULT=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.result'`
+  if [ "$RESULT" = 'SUCCESS' ]
+  then
+    logger -s "[INFO] $(date) BUILD RESULT: $RESULT"
+    exit 0
+  else
+    logger -s "[ERROR] $(date) BUILD RESULT: $RESULT - Build is unsuccessful, timed out, or status could not be obtained."
+    exit 1
+  fi
 fi
