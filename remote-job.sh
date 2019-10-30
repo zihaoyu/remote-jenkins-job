@@ -18,7 +18,7 @@ set -e
 [ -z "$BUILD_TIMEOUT_SECONDS" ] && BUILD_TIMEOUT_SECONDS=3600
 # Number of seconds between polling attempts
 [ -z "$POLL_INTERVAL" ] && POLL_INTERVAL=10
-while getopts j:p:t:u:s:r:i:w opt; do
+while getopts j:p:t:u:s:r:i:w:f opt; do
   case $opt in
     p) parameters+=("$OPTARG");;
     t) parameters+=("token=$OPTARG");;
@@ -26,8 +26,9 @@ while getopts j:p:t:u:s:r:i:w opt; do
     u) JENKINS_URL=$OPTARG;;
     s) JENKINS_USER=$OPTARG;;
     r) API_TOKEN=$OPTARG;;
-    i) CURL_OPTS="-k";; # tell curl to ignore cert validation
-    w) WAIT="true"      # wait for remote build to finish
+    i) CURL_OPTS="-k";;     # tell curl to ignore cert validation
+    w) WAIT="true";;        # wait for remote build to finish
+    f) WRITE_TO_FILE="true" # write remote JOB_URL to properties file
     #...
   esac
 done
@@ -98,6 +99,11 @@ until [ "$IS_BUILDING" = "true" ]; do
   fi
   IS_BUILDING=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.building'`
 done
+
+# Write remote build url to file
+if [ "$WRITE_TO_FILE" = "true" ]; then
+  echo "REMOTE_BUILD_URL=$JOB_URL" > remote_build.properties
+fi
 
 # Wait for remote build to finish if requested
 if [ "$WAIT" = "true" ]; then
