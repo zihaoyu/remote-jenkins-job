@@ -24,9 +24,9 @@ while getopts j:p:t:u:s:r:i:w:f opt; do
     u) JENKINS_URL=$OPTARG;;
     s) JENKINS_USER=$OPTARG;;
     r) API_TOKEN=$OPTARG;;
-    i) CURL_OPTS="-k";;     # tell curl to ignore cert validation
-    w) WAIT="true";;        # wait for remote build to finish
-    f) WRITE_TO_FILE="true" # write remote JOB_URL to properties file
+    i) CURL_OPTS="-k";;         # tell curl to ignore cert validation
+    w) WAIT_TO_FINISH="true";;  # wait for remote build to finish
+    f) WRITE_TO_FILE="true"     # write remote JOB_URL to properties file
     #...
   esac
 done
@@ -48,6 +48,9 @@ done
 [ -z "$PARAMS" ] && { logger -s "[ERROR] $(date) No parameters were set!"; exit 1; }
 logger -s "[INFO] $(date) PARAMS: $PARAMS"
 
+PROPERTIES_FILE=remote_build.properties
+echo "REMOTE_JENKINS_URL=$JENKINS_URL" > $PROPERTIES_FILE
+
 # Queue up the job
 # nb You must use the buildWithParameters build invocation as this
 # is the only mechanism of receiving the "Queued" job id (via HTTP Location header)
@@ -56,13 +59,17 @@ REMOTE_JOB_URL="$JENKINS_URL/job/$JOB_NAME/buildWithParameters?$PARAMS"
 logger -s "[INFO] $(date) Calling REMOTE_JOB_URL: $REMOTE_JOB_URL"
 
 QUEUED_URL=$(curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS -D - "$REMOTE_JOB_URL" | grep -i Location | awk {'print $2'})
+QUEUED_NUMBER=$(echo $QUEUED_URL | rev | cut -f2 -d'/' | rev)
 #perl -n -e '/^Location: (.*)$/ && print "$1\n"')
 [ -z "$QUEUED_URL" ] && { logger -s "[ERROR] $(date) No QUEUED_URL was found.  Did you remember to set a token (-t)?"; exit 1; }
+
+echo "QUEUED_NUMBER=$QUEUED_NUMBER" >> $PROPERTIES_FILE
 
 # Remove extra \r at end, add /api/json path
 QUEUED_URL=${QUEUED_URL%$'\r'}api/json
 
 # Fetch the executable.url from the QUEUED url
+SCHEDULED="false"
 JOB_URL=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $QUEUED_URL | jq -r '.executable.url'`
 [ "$JOB_URL" = "null" ] && unset JOB_URL
 # Check for status of queued job, whether it is running yet
@@ -73,12 +80,21 @@ while [ -z "$JOB_URL" ]; do
   sleep $POLL_INTERVAL
   if [ "$COUNTER" -gt $BUILD_TIMEOUT_SECONDS ];
   then
-    break  # Skip entire rest of loop.
+    logger -s "[ERROR] $(date) TIMEOUT: Exceeded $BUILD_TIMEOUT_SECONDS seconds"
+    break
   fi
   JOB_URL=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $QUEUED_URL | jq -r '.executable.url'`
-  [ "$JOB_URL" = "null" ] && unset JOB_URL
+  SCHEDULED="true"
+  [ "$JOB_URL" = "null" ] && unset JOB_URL && SCHEDULED="false"
 done
 logger -s "[INFO] $(date) REMOTE_BUILD_URL: $JOB_URL"
+echo "SCHEDULED=$SCHEDULED" >> $PROPERTIES_FILE
+
+if [ "$SCHEDULED" = "false" ]; then
+  # timeout and our job is not scheduled. Exit
+  logger -s "[ERROR] $(date) Our build is not scheduled. Exiting..."
+  exit 1
+fi
 
 # Job is running
 IS_BUILDING="false"
@@ -92,19 +108,25 @@ until [ "$IS_BUILDING" = "true" ]; do
   sleep $POLL_INTERVAL
   if [ "$COUNTER" -gt $BUILD_TIMEOUT_SECONDS ];
   then
-    logger -s "[ERROR] $(date) TIME-OUT: Exceeded $BUILD_TIMEOUT_SECONDS seconds"
-    break  # Skip entire rest of loop.
+    logger -s "[ERROR] $(date) TIMEOUT: Exceeded $BUILD_TIMEOUT_SECONDS seconds"
+    break
   fi
   IS_BUILDING=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.building'`
 done
 
 # Write remote build url to file
 if [ "$WRITE_TO_FILE" = "true" ]; then
-  echo "REMOTE_BUILD_URL=$JOB_URL" > remote_build.properties
+  echo "REMOTE_BUILD_URL=$JOB_URL" >> $PROPERTIES_FILE
+fi
+
+if [ "$IS_BUILDING" = "false" ]; then
+  # our build is not building
+  logger -s "[ERROR] $(date) Our build is not being built. Exiting..."
+  exit 1
 fi
 
 # Wait for remote build to finish if requested
-if [ "$WAIT" = "true" ]; then
+if [ "$WAIT_TO_FINISH" = "true" ]; then
   RESULT=`curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS $JOB_URL/api/json | jq -r '.result'`
   if [ "$RESULT" = 'SUCCESS' ]
   then
