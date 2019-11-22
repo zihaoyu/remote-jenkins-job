@@ -60,7 +60,7 @@ fi
 # is the only mechanism of receiving the "Queued" job id (via HTTP Location header)
 
 REMOTE_JOB_URL="$JENKINS_URL/job/$JOB_NAME/buildWithParameters?$PARAMS"
-logger -s "[INFO] $(date) Calling REMOTE_JOB_URL: $REMOTE_JOB_URL"
+logger -s "[INFO] $(date) Kicking off REMOTE JOB ON $JENKINS_URL"
 
 QUEUED_URL=$(curl -XPOST -sSL --user $JENKINS_USER:$API_TOKEN $CURL_OPTS -D - "$REMOTE_JOB_URL" | grep -i Location | awk {'print $2'})
 QUEUED_NUMBER=$(echo $QUEUED_URL | rev | cut -f2 -d'/' | rev)
@@ -73,6 +73,7 @@ fi
 
 # Remove extra \r at end, add /api/json path
 QUEUED_URL=${QUEUED_URL%$'\r'}api/json
+logger -s "[INFO] $(date) Queued Job status can be found at  $QUEUED_URL"
 
 # Fetch the executable.url from the QUEUED url
 SCHEDULED="false"
